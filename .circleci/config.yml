@@ -1,0 +1,60 @@
+version: 2.1
+jobs:
+  build:
+    docker: 
+      - image: maven:3.5.4-jdk-8-alpine # the primary container, where your job's commands are run
+    steps:
+      - checkout # check out the code in the project directory
+      - run: echo "hello world" # run the `echo` command
+      - run: ls -l
+      - run:
+          name: Install jFrog CLI
+          command: curl -fL https://getcli.jfrog.io | sh
+          
+      - run:
+          name: Config
+          command: |
+            mvn -version
+            
+      - run:
+          name: Config
+          command: |
+            ./jfrog rt config --url $ARTIFACTORY_URL --user $ARTIFACTORY_USER --apikey $ARTIFACTORY_APIKEY --interactive=false
+            ./jfrog rt c show
+      - run:
+          name: Maven install
+          command: |
+            export M2_HOME=/usr/share/maven
+            ./jfrog rt mvn "clean install" maven.conf --build-name=circleci-maven-artifactory --build-number=$CIRCLE_BUILD_NUM
+      - run:
+          name: Collect the environment variables 
+          command: |
+            ./jfrog rt bce circleci-maven-artifactory $CIRCLE_BUILD_NUM 
+           
+            
+            
+      - run:
+          name: Add sonar
+          command: |
+            ./jfrog rt sp "maven-dev-local/org/jfrog/test/multi3/3.7-SNAPSHOT/*.war" "qulity.gate.sonarUrl=http://ip:9000/dashboard/index/circleci-maven-artifactory"
+        
+      - run:
+          name: Add properties
+          command: |
+            ./jfrog rt sp "maven-dev-local/org/jfrog/test/multi3/3.7-SNAPSHOT/*.war" "deploy.tool=ansible"
+            ./jfrog rt sp "maven-dev-local/org/jfrog/test/multi3/3.7-SNAPSHOT/*.war" "ip=127.0.0.1"
+            
+      - run:
+          name: Pass the build information to Artifactory   
+          command: |
+            ./jfrog rt bp circleci-maven-artifactory $CIRCLE_BUILD_NUM 
+   
+      - run:
+          name: Promote  
+          command: |
+            ./jfrog rt bpr circleci-maven-artifactory $CIRCLE_BUILD_NUM maven-pro-local
+  
+      - run:
+          name: Xray Scan 
+          command: |
+            ./jfrog rt bs circleci-maven-artifactory $CIRCLE_BUILD_NUM --fail=false
